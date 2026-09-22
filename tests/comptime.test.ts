@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, afterAll } from "bun:test";
 import { comptimeCompiler } from "../src/api.ts";
 import { formatPath } from "../src/resolve.ts";
 import { getComptimeReplacements } from "../src/comptime.ts";
+import { ComptimeError } from "../src/errors.ts";
+import type { EvalRecord } from "../src/evaluator.ts";
 import MagicString from "magic-string";
 
 const randId = () => Math.random().toString(36).substring(2, 15);
@@ -846,5 +848,142 @@ describe("comptime", () => {
 			expect(map.sources).not.toContain("");
 			expect(map.sources[0]).toEqual(id);
 		}
+	});
+
+	it("should report the original source position when evaluation fails", async () => {
+		const src = [
+			`import { comptime } from "comptime.ts" with { type: "comptime" };`,
+			`const x = comptime(boom());`,
+			`function boom(): number { throw new Error("boom"); }`,
+		].join("\n");
+		const filename = await file("foo.ts", src);
+
+		const error = await getCompiled("foo.ts").catch(e => e);
+		expect(error).toBeInstanceOf(ComptimeError);
+		expect(error.message).toContain("ct_err_evaluate");
+		// `comptime(boom())` starts on line 2, column 11 of the original source
+		// (the error is boxed, so long paths wrap across lines)
+		const flat = error.message.replace(/[│\n]/g, "");
+		expect(flat).toContain(`${filename}:2:11`);
+	});
+
+	it("should record evaluations through the evaluator host", async () => {
+		await file(
+			"foo.ts",
+			[
+				`import { sum } from "./bar.ts" with { type: "comptime" };`,
+				`import { comptime } from "comptime.ts" with { type: "comptime" };`,
+				`const a = sum(1, 2);`,
+				`const b = comptime(a * 2);`,
+			].join("\n"),
+		);
+		await file("bar.ts", `export function sum(a: number, b: number) { return a + b; }`);
+
+		const records: EvalRecord[] = [];
+		const tsconfigPath = join(temp, "tsconfig.json");
+		await getComptimeReplacements({ tsconfigPath, record: record => records.push(record) });
+
+		expect(records).toHaveLength(2);
+		expect(records.every(record => record.status === "ok")).toBe(true);
+
+		const [first, second] = records;
+		// records follow source (dependency) order
+		expect(first!.plan.origin.start).toBeLessThan(second!.plan.origin.start);
+		expect(first!.plan.origin.fileName).toContain("foo.ts");
+		expect(first!.plan.id).toBe(
+			`${first!.plan.origin.fileName}:${first!.plan.origin.start}:${first!.plan.origin.end}`,
+		);
+
+		expect(first!.plan.freeBindings).toEqual(["sum"]);
+		expect(first!.plan.capabilities).toEqual(["import", "async"]);
+		expect(first!.value).toBe(3);
+
+		expect(second!.plan.freeBindings).toEqual(["comptime", "a"]);
+		expect(second!.plan.capabilities).toEqual(["import", "async"]);
+		expect(second!.value).toBe(6);
+	});
+
+	it("should leave no partial output or side effects when a plan fails", async () => {
+		await file(
+			"foo.ts",
+			[
+				`import { x } from "./baz.ts" with { type: "comptime" };`,
+				`import { comptime, getComptimeContext } from "comptime.ts" with { type: "comptime" };`,
+				`import { writeFileSync } from "node:fs" with { type: "comptime" };`,
+				`console.log(x);`,
+				`comptime.defer(() => { writeFileSync("side-effect.txt", getComptimeContext()!.sourceFile); });`,
+				`const broken = comptime((() => { throw new Error("boom") })());`,
+			].join("\n"),
+		);
+		await file("baz.ts", `export const x = 2;`);
+
+		await expect(getCompiled("foo.ts")).rejects.toThrow();
+
+		// no partial output was written
+		await expect(readFile(join(temp, "out", "foo.ts"), "utf-8")).rejects.toThrow();
+		// deferred functions never ran
+		await expect(readFile(join(temp, "side-effect.txt"), "utf-8")).rejects.toThrow();
+	});
+
+	it("should produce identical replacements for concurrent transforms of the same AST", async () => {
+		await file(
+			"foo.ts",
+			[
+				`import { sum } from "./bar.ts" with { type: "comptime" };`,
+				`console.log(sum(1, 2), sum(3, 4));`,
+			].join("\n"),
+		);
+		await file("bar.ts", `export function sum(a: number, b: number) { return a + b; }`);
+
+		const tsconfigPath = join(temp, "tsconfig.json");
+		const [first, second] = await Promise.all([
+			getComptimeReplacements({ tsconfigPath }),
+			getComptimeReplacements({ tsconfigPath }),
+		]);
+
+		expect(second).toEqual(first);
+		const all = Object.values(first).flat();
+		expect(all.some(repl => repl.replacement === "3")).toBe(true);
+		expect(all.some(repl => repl.replacement === "7")).toBe(true);
+	});
+
+	it("should reject cyclic values with a clear emit error", async () => {
+		await file(
+			"foo.ts",
+			[
+				`import { comptime } from "comptime.ts" with { type: "comptime" };`,
+				`const x = comptime(cyclic());`,
+				`function cyclic(): any { const o: any = { a: 1 }; o.self = o; return o; }`,
+			].join("\n"),
+		);
+
+		const error = await getCompiled("foo.ts").catch(e => e);
+		expect(error).toBeInstanceOf(ComptimeError);
+		expect(error.message).toContain("ct_err_emit");
+		expect(error.message).toContain("cyclic");
+	});
+
+	it("should produce generated code that runs to the compile-time result", async () => {
+		await file(
+			"foo.ts",
+			[
+				`import { sum } from "./bar.ts" with { type: "comptime" };`,
+				`export const result = sum(20, 22);`,
+			].join("\n"),
+		);
+		await file("bar.ts", `export function sum(a: number, b: number) { return a + b; }`);
+
+		const records: EvalRecord[] = [];
+		const tsconfigPath = join(temp, "tsconfig.json");
+		await comptimeCompiler({ tsconfigPath, record: record => records.push(record) }, join(temp, "out"));
+
+		const compiled = await readFile(join(temp, "out", "foo.ts"), "utf-8");
+		expect(compiled).toContain("export const result = 42;");
+
+		// the compile-time value recorded by the host matches the runtime result of the generated code
+		expect(records).toHaveLength(1);
+		const mod = await import(join(temp, "out", "foo.ts"));
+		expect(mod.result).toBe(records[0]!.value);
+		expect(mod.result).toBe(42);
 	});
 });

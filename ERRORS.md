@@ -18,6 +18,7 @@ The following are known errors that can occur when using comptime.
 - [`CT_ERR_ERASE_TYPES`](#ct_err_erase_types)
 - [`CT_ERR_CREATE_FUNCTION`](#ct_err_create_function)
 - [`CT_ERR_EVALUATE`](#ct_err_evaluate)
+- [`CT_ERR_EMIT`](#ct_err_emit)
 - [`CT_ERR_NO_COMPTIME`](#ct_err_no_comptime)
 
 ---
@@ -168,6 +169,37 @@ import { foo } from "./bar.ts" with { type: "comptime" };
 
 const a = 10;
 console.log(foo(a));
+```
+
+---
+
+## CT_ERR_EMIT
+
+> Error occurred while emitting the evaluated value back to source.
+
+This error occurs when an expression evaluated successfully at compile time, but the resulting value could not be serialised back into source code.
+
+A common cause is a cyclic value: objects, arrays, Maps or Sets that (directly or indirectly) reference themselves cannot be represented as source.
+
+### Broken Code ❌
+
+```typescript
+import { comptime } from "comptime.ts" with { type: "comptime" };
+const o: any = { a: 1 };
+o.self = o;
+export const x = comptime(o);
+```
+
+### Solution
+
+Ensure the evaluated value is serialisable. See [serialisation](/serialisation) for the supported types.
+
+### Fixed Code ✔️
+
+```typescript
+import { comptime } from "comptime.ts" with { type: "comptime" };
+const o = { a: 1 };
+export const x = comptime(o);
 ```
 
 ---

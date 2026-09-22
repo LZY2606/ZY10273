@@ -19,6 +19,7 @@ export const COMPTIME_ERRORS = {
 	CT_ERR_ERASE_TYPES: "CT_ERR_ERASE_TYPES",
 	CT_ERR_CREATE_FUNCTION: "CT_ERR_CREATE_FUNCTION",
 	CT_ERR_EVALUATE: "CT_ERR_EVALUATE",
+	CT_ERR_EMIT: "CT_ERR_EMIT",
 	CT_ERR_NO_COMPTIME: "CT_ERR_NO_COMPTIME",
 } as const;
 
@@ -31,6 +32,7 @@ export const COMPTIME_ERRORS_MESSAGES = {
 	[COMPTIME_ERRORS.CT_ERR_ERASE_TYPES]: "Error occurred while erasing types.",
 	[COMPTIME_ERRORS.CT_ERR_CREATE_FUNCTION]: "Error occurred while creating a new Function.",
 	[COMPTIME_ERRORS.CT_ERR_EVALUATE]: "Error occurred while evaluating the expression.",
+	[COMPTIME_ERRORS.CT_ERR_EMIT]: "Error occurred while emitting the evaluated value back to source.",
 	[COMPTIME_ERRORS.CT_ERR_NO_COMPTIME]: [
 		"This function must be called in a comptime context, but was called at runtime.",
 		'Are you missing `with { type: "comptime" }` or a compile-step?\n',

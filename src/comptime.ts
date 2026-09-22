@@ -1,15 +1,21 @@
-import { w } from "w";
-
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import MagicString from "magic-string";
 import * as ts from "typescript";
 import { formatSourceError } from "./formatSourceError.ts";
-import { box, COMPTIME_ERRORS, ComptimeError, type ComptimeErrorKind } from "./errors.ts";
-import { format } from "node:util";
+import { COMPTIME_ERRORS, ComptimeError, type ComptimeErrorKind } from "./errors.ts";
 import { formatPath, getModuleResolver, type ModuleResolver } from "./resolve.ts";
-import { asyncLocalStore, type Defer } from "./async_store.ts";
-import { formatResolvedValue } from "./formatResolvedValue.ts";
+import { type Defer } from "./async_store.ts";
+import { evaluatePlan, PlanEvaluationError, type EvalHost, type EvalRecord } from "./evaluator.ts";
+import { emitReplacement } from "./emitter.ts";
+import {
+	getCapabilities,
+	getFreeBindings,
+	makePlanId,
+	sortPlans,
+	type EvalPlan,
+	type SourceOrigin,
+} from "./plan.ts";
 
 export interface Replacement {
 	start: number;
@@ -223,7 +229,7 @@ async function getEvaluation(
 	checker: ts.TypeChecker,
 	sourceFile: ts.SourceFile,
 	node: ts.Node,
-) {
+): Promise<{ code: string; hasImports: boolean }> {
 	const identifiers = query<ts.Identifier>(node, ts.SyntaxKind.Identifier);
 	const seen = new Set<DeclarationNode>();
 	const decls = identifiers.flatMap(idn => recursivelyGetIdentifierDeclarations(seen, checker, sourceFile, idn));
@@ -241,7 +247,54 @@ async function getEvaluation(
 	let evalProgram = "";
 	for (const line of declLines) evalProgram += "  " + line + "\n";
 	evalProgram += "  return " + node.getText();
-	return evalProgram;
+	return { code: evalProgram, hasImports: sorted.some(isImportNode) };
+}
+
+/**
+ * Front-end lowering: turn a supported target expression into a
+ * restricted EvalPlan carrying its source origin, free bindings and
+ * required capabilities. The plan is validated (syntax checked) and
+ * type-erased here; the original AST is left untouched.
+ */
+async function lowerToPlan(
+	resolver: ModuleResolver,
+	checker: ts.TypeChecker,
+	sourceFile: ts.SourceFile,
+	target: ts.Node,
+): Promise<EvalPlan> {
+	let errCode: ComptimeErrorKind = COMPTIME_ERRORS.CT_ERR_GET_EVALUATION;
+
+	let evalProgram: string = "";
+	let transpiled: string = "";
+	let hasImports = false;
+
+	try {
+		const evaluation = await getEvaluation(resolver, checker, sourceFile, target);
+		hasImports = evaluation.hasImports;
+		evalProgram = `async function evaluate() {\n${evaluation.code}\n}`;
+		errCode = COMPTIME_ERRORS.CT_ERR_SYNTAX_CHECK;
+		assertNoSyntaxErrors(evalProgram);
+		errCode = COMPTIME_ERRORS.CT_ERR_ERASE_TYPES;
+		transpiled = eraseTypes(evalProgram);
+	} catch (e) {
+		const message = formatSourceError(sourceFile, target, e, evalProgram, transpiled);
+		throw new ComptimeError(errCode, message, e);
+	}
+
+	const origin: SourceOrigin = {
+		fileName: sourceFile.fileName,
+		start: target.getStart(sourceFile),
+		end: target.getEnd(),
+	};
+
+	return {
+		id: makePlanId(origin),
+		origin,
+		freeBindings: getFreeBindings(target),
+		capabilities: getCapabilities(target, hasImports),
+		source: evalProgram,
+		transpiled,
+	};
 }
 
 export function isNodeModules(filePath: string): boolean {
@@ -250,6 +303,7 @@ export function isNodeModules(filePath: string): boolean {
 
 interface BaseConfig {
 	resolver?: ModuleResolver;
+	record?: (record: EvalRecord) => void;
 }
 
 interface ConfigByConfig extends BaseConfig {
@@ -308,10 +362,6 @@ export function getTsConfig(opts?: GetComptimeReplacementsOpts): {
 		};
 	}
 }
-
-const logs = {
-	evalContext: w("comptime:eval"),
-};
 
 export async function getComptimeReplacements(opts?: Filterable<GetComptimeReplacementsOpts>): Promise<Replacements> {
 	const { configDir, tsConfig } = getTsConfig(opts);
@@ -442,87 +492,66 @@ export async function getComptimeReplacements(opts?: Filterable<GetComptimeRepla
 					replacement: "",
 				}));
 
-				const replacements = [];
-
 				const resolver = getModuleResolver(opts?.resolver);
 
-				// safe to do all this work async
-				const evaluations = await Promise.all(
-					filteredTargets.map(async ({ node: target }) => {
-						let errCode: ComptimeErrorKind = COMPTIME_ERRORS.CT_ERR_GET_EVALUATION;
-
-						let evalProgram: string = "";
-						let transpiled: string = "";
-
-						try {
-							const evaluation = await getEvaluation(resolver, checker, sourceFile, target);
-							evalProgram = `async function evaluate() {\n${evaluation}\n}`;
-							errCode = COMPTIME_ERRORS.CT_ERR_SYNTAX_CHECK;
-							assertNoSyntaxErrors(evalProgram);
-							errCode = COMPTIME_ERRORS.CT_ERR_ERASE_TYPES;
-							transpiled = eraseTypes(evalProgram);
-						} catch (e) {
-							const message = formatSourceError(sourceFile, target, e, evalProgram, transpiled);
-							throw new ComptimeError(errCode, message, e);
-						}
-
-						return {
-							target,
-							evalProgram,
-							transpiled,
-							deferQueue,
-							sourceFile: sourceFile.fileName,
-							position: {
-								start: target.getStart(sourceFile),
-								end: target.getEnd(),
-							},
-						};
-					}),
+				/*
+					Phase 1 — lowering: each target expression is lowered to a
+					validated EvalPlan. Lowering is independent per expression,
+					so it is safe to do all of this work async.
+				*/
+				const lowered = await Promise.all(
+					filteredTargets.map(async ({ node: target }) => ({
+						target,
+						plan: await lowerToPlan(resolver, checker, sourceFile, target),
+					})),
 				);
 
-				// evaluate in series to avoid race conditions
-				for (const { target, evalProgram, transpiled, ...context } of evaluations) {
-					let errCode: ComptimeErrorKind = COMPTIME_ERRORS.CT_ERR_CREATE_FUNCTION;
+				// dependency order: declarations always precede uses in source order
+				const plans = sortPlans(lowered.map(({ plan }) => plan));
+				const targetById = new Map(lowered.map(({ plan, target }) => [plan.id, target]));
+
+				/*
+					Phase 2 & 3 — evaluation and emission: plans are evaluated in
+					series against an explicit host, and each result is emitted as
+					a replacement. Replacements stay local until every plan in this
+					file succeeds, so a failure leaves the original AST untouched
+					and independent plans fail in isolation.
+				*/
+				const emitted: Replacement[] = [];
+
+				for (const plan of plans) {
+					const host: EvalHost = {
+						context: {
+							sourceFile: plan.origin.fileName,
+							position: { start: plan.origin.start, end: plan.origin.end },
+							deferQueue,
+						},
+						record: opts?.record,
+					};
 
 					let resolved: unknown;
 					try {
-						if (logs.evalContext.enabled) {
-							const lineChar = ts.getLineAndCharacterOfPosition(sourceFile, target.getStart(sourceFile));
-							const marker = `${sourceFile.fileName}:${lineChar.line + 1}:${lineChar.character + 1}`;
-							logs.evalContext(
-								"\n\n" +
-									box(
-										[box(transpiled), "-- with comptime context: " + format(context), "From: " + marker].join("\n\n"),
-										{
-											title: "evaluation block",
-										},
-									),
-								"\n",
-							);
-						}
-						const func = new Function(
-							"__comptime_context",
-							"asyncLocalStore",
-							transpiled + "\nreturn asyncLocalStore.run({ __comptime_context }, evaluate);",
-						);
-						errCode = COMPTIME_ERRORS.CT_ERR_EVALUATE;
-						resolved = await func(context, asyncLocalStore);
+						resolved = await evaluatePlan(plan, host);
 					} catch (e) {
-						const message = formatSourceError(sourceFile, target, e, evalProgram, transpiled);
-						throw new ComptimeError(errCode, message, e);
+						const errCode =
+							e instanceof PlanEvaluationError && e.stage === "create"
+								? COMPTIME_ERRORS.CT_ERR_CREATE_FUNCTION
+								: COMPTIME_ERRORS.CT_ERR_EVALUATE;
+						const cause = e instanceof PlanEvaluationError ? e.cause : e;
+						const message = formatSourceError(sourceFile, targetById.get(plan.id)!, cause, plan.source, plan.transpiled);
+						throw new ComptimeError(errCode, message, cause);
 					}
 
-					// TODO: if this node will become an unused statement, remove it entirely instead of replacing it
-					const result = formatResolvedValue(resolved);
-
-					replacements.push({
-						start: target.getStart(sourceFile),
-						end: target.getEnd(),
-						replacement: result,
-					});
+					try {
+						// TODO: if this node will become an unused statement, remove it entirely instead of replacing it
+						emitted.push(emitReplacement(plan, resolved));
+					} catch (e) {
+						const message = formatSourceError(sourceFile, targetById.get(plan.id)!, e, plan.source, plan.transpiled);
+						throw new ComptimeError(COMPTIME_ERRORS.CT_ERR_EMIT, message, e);
+					}
 				}
 
-				return [resolved, [...removeImports, ...(await Promise.all(replacements))]] as const;
+				return [resolved, [...removeImports, ...emitted]] as const;
 			}),
 		),
 	);

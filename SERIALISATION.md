@@ -47,6 +47,10 @@ const debug = x => console.log(x);
 
 [1] See "Function Serialisation" section below
 
+## Cyclic Values
+
+Objects, arrays, Maps and Sets must be non-cyclic. A value that (directly or indirectly) references itself cannot be represented as source, and fails with a [`CT_ERR_EMIT`](/errors#ct_err_emit) error instead of being replaced.
+
 ## Promise Handling
 
 Promises are automatically resolved during serialisation:
