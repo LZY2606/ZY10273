@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>comptime.ts — compile-time expressions for TypeScript</title>
+	<meta name="description" content="A simple-to-use compiler, Vite, and Bun plugin to evaluate TypeScript expressions at compile time." />
+	<meta name="author" content="Muthu Kumar" />
+	<meta name="keywords" content="TypeScript, comptime, compiler, Vite, plugin, build, time, expression, evaluate" />
+
+	<link rel="icon" href="/favicon.ico" />
+
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content="https://comptime.js.org" />
+	<meta property="og:title" content="comptime.ts — compile-time expressions for TypeScript" />
+	<meta property="og:description" content="A simple-to-use compiler, Vite, and Bun plugin to evaluate TypeScript expressions at compile time." />
+	<meta property="og:image" content="https://comptime.js.org/comptime.ts.jpg" />
+
+	<!-- Twitter -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:url" content="https://comptime.js.org" />
+	<meta name="twitter:title" content="comptime.ts — compile-time expressions for TypeScript" />
+	<meta name="twitter:description" content="A simple-to-use compiler, Vite, and Bun plugin to evaluate TypeScript expressions at compile time." />
+	<meta name="twitter:image" content="https://comptime.js.org/comptime.ts.jpg" />
+
+	<meta name="darkreader-lock" />
+	<meta name="theme-color" content="#7759ff" />
+
+	<link rel="preconnect" href="https://rsms.me/" />
+	<link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+	<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+<div align="center">
+  <img src="https://raw.githubusercontent.com/feathers-studio/comptime.ts/master/docs/comptime.ts.svg" alt="Hyperactive">
+</div>
+
+<div align="center">
+<h1>⚡️ comptime.ts</h1>
+</div>
+
+<div align="center">
+<a href="https://github.com/feathers-studio/comptime.ts" target="_blank">
+  <svg height="32" viewBox="0 0 24 24" version="1.1" width="32" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+	<path
+		d="M12 1C5.9225 1 1 5.9225 1 12C1 16.8675 4.14875 20.9787 8.52125 22.4362C9.07125 22.5325 9.2775 22.2025 9.2775 21.9137C9.2775 21.6525 9.26375 20.7862 9.26375 19.865C6.5 20.3737 5.785 19.1912 5.565 18.5725C5.44125 18.2562 4.905 17.28 4.4375 17.0187C4.0525 16.8125 3.5025 16.3037 4.42375 16.29C5.29 16.2762 5.90875 17.0875 6.115 17.4175C7.105 19.0812 8.68625 18.6137 9.31875 18.325C9.415 17.61 9.70375 17.1287 10.02 16.8537C7.5725 16.5787 5.015 15.63 5.015 11.4225C5.015 10.2262 5.44125 9.23625 6.1425 8.46625C6.0325 8.19125 5.6475 7.06375 6.2525 5.55125C6.2525 5.55125 7.17375 5.2625 9.2775 6.67875C10.1575 6.43125 11.0925 6.3075 12.0275 6.3075C12.9625 6.3075 13.8975 6.43125 14.7775 6.67875C16.8813 5.24875 17.8025 5.55125 17.8025 5.55125C18.4075 7.06375 18.0225 8.19125 17.9125 8.46625C18.6138 9.23625 19.04 10.2125 19.04 11.4225C19.04 15.6437 16.4688 16.5787 14.0213 16.8537C14.42 17.1975 14.7638 17.8575 14.7638 18.8887C14.7638 20.36 14.75 21.5425 14.75 21.9137C14.75 22.2025 14.9563 22.5462 15.5063 22.4362C19.8513 20.9787 23 16.8537 23 12C23 5.9225 18.0775 1 12 1Z">
+	</path>
+</svg>
+</a>
+</div>
+
+<p>A dead-simple TypeScript compiler that does one thing really well: enables compile-time evaluation of expressions marked with <code>comptime</code>.</p>
+<p>This is useful for optimising your code by moving computations from runtime to compile time. This project was inspired by <a href="https://bun.sh/docs/bundler/macros">Bun macros</a> and <a href="https://ziglang.org/documentation/master/#Compile-Time-Expressions">Zig comptime</a> (hence the name).</p>
+<blockquote>
+<p><strong>Warning</strong>: You are responsible for ensuring that the expressions you mark with <code>comptime</code> are safe to evaluate at compile time. <code>comptime.ts</code> does not perform any isolation. However, comptime imports are only allowed in project files, and not in node_modules. You may however import from node_modules as comptime.</p>
+</blockquote>
+<h2>Quick References</h2>
+<ul>
+<li><a href="././serialisation">↗️ Serialisation Reference</a></li>
+<li><a href="././errors">↗️ Error Reference</a></li>
+</ul>
+<h2>Contents</h2>
+<ul>
+<li><a href="#what-is-comptimets">What is comptime.ts?</a></li>
+<li><a href="#examples">Examples</a><ul>
+<li><a href="#1-simple-sum-function">1. Simple sum function</a></li>
+<li><a href="#2-turn-emotion-css-into-a-zero-runtime-css-library">2. Turn emotion CSS into a zero-runtime CSS library</a></li>
+<li><a href="#3-calculate-constants-at-compile-time">3. Calculate constants at compile time</a></li>
+</ul>
+</li>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#usage">Usage</a><ul>
+<li><a href="#with-vite">With Vite</a></li>
+<li><a href="#with-bun-bundler">With Bun bundler</a></li>
+<li><a href="#command-line-interface">Command Line Interface</a></li>
+<li><a href="#via-api">Via API</a></li>
+</ul>
+</li>
+<li><a href="#forcing-comptime-evaluation-of-arbitrary-expressions-and-resolving-promises">Forcing comptime evaluation</a><ul>
+<li><a href="#resolving-promises">Resolving promises</a></li>
+<li><a href="#opting-out-of-comptime-virality">Opting out of comptime virality</a></li>
+</ul>
+</li>
+<li><a href="#using-other-import-attributes">Using other import attributes</a></li>
+<li><a href="#running-code-after-comptime-evaluation">Running code after comptime evaluation</a></li>
+<li><a href="#how-it-works">How it works</a></li>
+<li><a href="#limitations">Limitations</a></li>
+<li><a href="#best-practices">Best practices</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#supporting-the-project">Supporting the project</a></li>
+<li><a href="#license">License</a></li>
+</ul>
+<h2>What is comptime.ts?</h2>
+<p>comptime.ts allows you to evaluate expressions at compile time, similar to compile-time macros in other languages. This can help optimise your code by moving computations from runtime to compile time.</p>
+<h2>Examples</h2>
+<h3>1. Simple sum function</h3>
+<pre><code class="language-typescript">import { sum } from &quot;./sum.ts&quot; with { type: &quot;comptime&quot; };
+
+console.log(sum(1, 2));
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-typescript">console.log(3);
+</code></pre>
+<h3>2. Turn emotion CSS into a zero-runtime CSS library</h3>
+<pre><code class="language-typescript">import { css } from &quot;@emotion/css&quot; with { type: &quot;comptime&quot; };
+
+const style = css`
+  color: red;
+  font-size: 16px;
+`;
+
+div({ class: style });
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-typescript">const style = &quot;css-x2wxma&quot;;
+div({ class: style });
+</code></pre>
+<blockquote>
+<p><strong>Note</strong>: The <code>@emotion/css</code> import got removed from the output. You&#39;ll need to somehow add the styles back to your project somehow. See <a href="#running-code-after-comptime-evaluation">running code after comptime evaluation</a> for an example of emitting the styles as a CSS file. Alternatively, you might write a bundler plugin to import the CSS cache from <code>@emotion/css</code> and emit them as a CSS file, etc.</p>
+</blockquote>
+<h3>3. Calculate constants at compile time</h3>
+<pre><code class="language-typescript">import { ms } from &quot;ms&quot; with { type: &quot;comptime&quot; };
+
+const HOUR = ms(&quot;1 hour&quot;);
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-typescript">const HOUR = 3600000;
+</code></pre>
+<p>Apart from function calls and tagged template literals, all sorts of expressions are supported (even more complex cases like index access and imported constants). The only limitation is that the resultant value must be serialisable <a href="././serialisation">(see serialisation)</a>.</p>
+<blockquote>
+<p><strong>Note</strong>: The import statements marked with <code>type: &quot;comptime&quot;</code> are removed in the output. We assume you have other tooling (like Vite) to handle other unused redundant statements left behind after comptime evaluation.</p>
+</blockquote>
+<h2>Installation</h2>
+<pre><code class="language-bash">bun add comptime.ts
+
+# or
+
+pnpm add comptime.ts
+
+# or
+
+npm install comptime.ts
+</code></pre>
+<h2>Usage</h2>
+<h3>With Vite</h3>
+<p>Add the plugin to your Vite configuration:</p>
+<pre><code class="language-typescript">import { comptime } from &quot;comptime.ts/vite&quot;;
+
+export default defineConfig({
+	plugins: [comptime()],
+});
+</code></pre>
+<p>In case <code>comptime.ts</code> is significantly slowing down your dev server, and your comptime functions behave identically at runtime and comptime, you may enable it only in production builds:</p>
+<pre><code class="language-typescript">import { comptime } from &quot;comptime.ts/vite&quot;;
+
+export default defineConfig({
+	build: {
+		rollupOptions: {
+			plugins: [comptime()],
+		},
+	},
+});
+</code></pre>
+<h3>With Bun bundler</h3>
+<p>Add the plugin to your Bun bundler configuration:</p>
+<pre><code class="language-typescript">import { comptime } from &quot;comptime.ts/bun&quot;;
+
+await Bun.build({
+	entrypoints: [&quot;./index.ts&quot;],
+	outdir: &quot;./out&quot;,
+	plugins: [comptime()],
+});
+</code></pre>
+<h3>Command Line Interface</h3>
+<p>You can also use the CLI:</p>
+<pre><code class="language-bash">npx comptime.ts --project tsconfig.json --outdir out
+</code></pre>
+<p>Or use Bun if you prefer:</p>
+<pre><code class="language-bash">bunx --bun comptime.ts --project tsconfig.json --outdir out
+</code></pre>
+<h3>Via API</h3>
+<p>Use the API directly:</p>
+<pre><code class="language-typescript">import { comptimeCompiler } from &quot;comptime.ts/api&quot;;
+
+await comptimeCompiler({ tsconfigPath: &quot;tsconfig.json&quot; }, &quot;./out&quot;);
+</code></pre>
+<h2>Forcing comptime evaluation of arbitrary expressions (and resolving promises)</h2>
+<p>We can abuse the fact that any function imported with the <code>type: &quot;comptime&quot;</code> option will be evaluated at compile time.</p>
+<p>This library exports a <code>comptime()</code> function that can be used to force comptime evaluation of an expression. It has to be imported with the <code>&quot;comptime&quot;</code> attribute. Any expressions contained within it will be evaluated at compile time. If the result is a promise, the resolved value will be inlined.</p>
+<blockquote>
+<p><strong>Note</strong>: Technically the <code>comptime()</code> function by itself doesn&#39;t do anything by itself. It&#39;s an identity function. It&#39;s the <code>with { type: &quot;comptime&quot; }</code> attribute that makes the compiler evaluate the expression at compile time.</p>
+</blockquote>
+<pre><code class="language-ts">import { comptime } from &quot;comptime.ts&quot; with { type: &quot;comptime&quot; };
+</code></pre>
+<p>Use it to force comptime evaluation of an expression.</p>
+<pre><code class="language-ts">const x = comptime(1 + 2);
+</code></pre>
+<p>When the compiler is run, the expression will be evaluated at compile time.</p>
+<pre><code class="language-ts">const x = 3;
+</code></pre>
+<h3>Resolving promises</h3>
+<pre><code class="language-ts">const x = comptime(Promise.resolve(1 + 2));
+</code></pre>
+<p>When the compiler is run, the promise will be resolved and the result will be inlined at compile time.</p>
+<pre><code class="language-ts">const x = 3;
+</code></pre>
+<blockquote>
+<p><strong>Note</strong>: The compiler always resolves promises returned by the evaluation, but this might not reflect in your types, in which case it&#39;s useful to use the <code>comptime()</code> function to infer the correct type.</p>
+</blockquote>
+<h3>Opting out of comptime virality</h3>
+<p>Normally, <code>comptime.ts</code> will eagerly extend comptime to expressions that include a comptime expression.</p>
+<pre><code class="language-ts">import { foo } from &quot;./foo.ts&quot; with { type: &quot;comptime&quot; };
+
+const x = foo().bar[1];
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-ts">const x = 2;
+</code></pre>
+<p>Notice how the whole expression, <code>foo().bar[1]</code>, is evaluated at compile time. You can opt-out of this behaviour by wrapping your expression in parentheses.</p>
+<!-- prettier-ignore -->
+<pre><code class="language-ts">const x = (foo().bar)[1];
+</code></pre>
+<p>Compiles to:</p>
+<!-- prettier-ignore -->
+<pre><code class="language-ts">const x = ([1, 2])[1];
+</code></pre>
+<p>In this case, <code>foo().bar</code> is evaluated at comptime, but <code>[1]</code> is left untouched.</p>
+<blockquote>
+<p><strong>Note</strong>: Your formatter might remove the extraneous parentheses, so you may need to ignore the line (such as with <code>prettier-ignore</code> comments). You are of course free to extract the expression to its own line:</p>
+<pre><code class="language-ts">const res = foo().bar;
+const x = res[1];
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-ts">const res = [1, 2];
+const x = res[1];
+</code></pre>
+<p>This also results in only <code>foo().bar</code> being evaluated at comptime, and doesn&#39;t upset your formatter.</p>
+</blockquote>
+<h2>Using other import attributes</h2>
+<p>You can use other import attributes alongside <code>type: &quot;comptime&quot;</code>. Support for them depends on the runtime you are using. For instance, to import JSON as at comptime, you can do:</p>
+<pre><code class="language-ts">import items from &quot;./items.json&quot; with { type: &quot;comptime+json&quot; };
+console.log(items.map(items =&gt; items.name));
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-ts">console.log([&quot;item1&quot;, &quot;item2&quot;, &quot;item3&quot;]);
+</code></pre>
+<p>Since expressions are viral, the entire expression <code>items.map(...)</code> is evaluated at comptime. This is desirable in most cases, since some computation has moved to comptime. See <a href="#opting-out-of-comptime-virality">opting out of comptime virality</a> for how to avoid this if needed. You can also assign the imported value to a variable to embed the JSON data in your code instead.</p>
+<pre><code class="language-ts">import itemsJSON from &quot;./items.json&quot; with { type: &quot;comptime+json&quot; };
+const items = itemsJSON;
+</code></pre>
+<p>Here <code>itemsJSON</code> is replaced with the JSON data at comptime, but <code>items</code> remains a runtime variable. The same applies to other import attributes, such as <code>comptime+text</code>, <code>comptime+bytes</code>, etc., as supported by your runtime.</p>
+<h2>Running code after comptime evaluation</h2>
+<p>You can use the <code>comptime.defer()</code> function to run code after comptime evaluation of all modules.</p>
+<p>This could be used, for example, to emit collected CSS from <code>@emotion/css</code> at the end of the compilation process.</p>
+<pre><code class="language-ts">import { comptime } from &quot;comptime.ts&quot; with { type: &quot;comptime&quot; };
+import { css, cache } from &quot;@emotion/css&quot; with { type: &quot;comptime&quot; };
+import { writeFileSync } from &quot;node:fs&quot; with { type: &quot;comptime&quot; };
+
+const style = css`
+  color: red;
+  font-size: 16px;
+`;
+
+// ...
+
+// You only need this once in your project, it runs after all modules are evaluated
+comptime.defer(() =&gt; {
+	const file = Object.entries(cache.registered)
+		.filter(Boolean)
+		.map(([key, value]) =&gt; `${key} {${value}}`)
+		.join(&quot;\n&quot;);
+	writeFileSync(&quot;styles.css&quot;, file);
+});
+</code></pre>
+<p>Please note that while all deferred functions are guaranteed to be executed after comptime evaluation,
+if multiple deferred functions exist, they are not guaranteed to be executed in any specific order because modules are evaluated concurrently.</p>
+<h2>How it Works</h2>
+<p><code>comptime.ts</code> works by:</p>
+<ol>
+<li>Parsing your TypeScript code to find imports marked with <code>type: &quot;comptime&quot;</code>.</li>
+<li>Finding all expressions in your files that use these imports.</li>
+<li>Collecting an execution block by walking up the file to find all references used by the comptime expression.</li>
+<li>Evaluating the execution block in an isolated context at compile time.</li>
+<li>Replacing the comptime expression with the result of the execution block.</li>
+</ol>
+<h2>Limitations</h2>
+<ul>
+<li>Only JSON-serialisable values can be returned from comptime expressions.</li>
+<li>The evaluation block is isolated, so multiple comptime expressions in the same file will be evaluated independently and may load variables from the parent scope independently, as if they were repeated per-expression.</li>
+<li>Complex expressions might increase build time significantly.</li>
+</ul>
+<h2>Best Practices</h2>
+<ul>
+<li>Use comptime for:<ul>
+<li>Computing constant values</li>
+<li>Generating static content</li>
+<li>Optimising performance-critical code</li>
+</ul>
+</li>
+<li>Avoid using comptime for:<ul>
+<li>Complex runtime logic</li>
+<li>Side effects</li>
+<li>Non-deterministic operations (unless you understand the implications)</li>
+</ul>
+</li>
+</ul>
+<h2>Troubleshooting</h2>
+<p><code>comptime.ts</code> will attempt to print very detailed error messages when it runs into an error. The message by itself should provide enough information to resolve the issue. See the <a href="././errors">error reference</a> for more details.</p>
+<p>If the error message is not helpful, <a href="https://github.com/feathers-studio/comptime.ts/issues/new/choose">raise an issue</a> with the full error message and the code that&#39;s being evaluated.</p>
+<p>However, sometimes <code>comptime.ts</code> runs successfully, but the output is not what you expected. This section describes some common issues and how to resolve them.</p>
+<blockquote>
+<p><strong>Note</strong>: To force <code>comptime.ts</code> to print the constructed evaluation block for each expression and other debug logs, set the environment variable <code>DEBUG=comptime:*</code>.</p>
+</blockquote>
+<p>The following are some non-error issues that you might encounter:</p>
+<ol>
+<li><p><strong>Redundant code not removed</strong></p>
+<ul>
+<li><code>comptime.ts</code> removes imports marked with <code>type: &quot;comptime&quot;</code> and replaces comptime expressions.</li>
+<li>However, it does not remove other redundant code that might be left behind after compilation.</li>
+<li>Use other tooling (like Vite) to handle such cleanup after the fact.</li>
+<li><code>comptime.ts</code> is available as a standalone CLI, JavaScript API and Vite plugin. If you&#39;d like <code>comptime.ts</code> to integrate with other tooling, please let us know via an issue or raise a PR!</li>
+</ul>
+</li>
+<li><p><strong>Compilation result is unexpected</strong></p>
+<ul>
+<li>Notice that variables in the caller&#39;s scope that are not comptime (imported with the &quot;comptime&quot; attribute) are not guaranteed to be stable.</li>
+<li><code>comptime.ts</code> will extract their declarations, but it will not account for mutations.</li>
+<li>If multiple comptime expressions exist in the same file, all dependent statements will be extracted and evaluated for <em>each</em> expression. This may cause the same declarations to be evaluated multiple times, and mutations are not reflected between evaluations.</li>
+<li>If you want a mutable comptime variable, declare it in another file and import it with the &quot;comptime&quot; attribute.</li>
+</ul>
+<pre><code class="language-typescript">import { sum } from &quot;./sum.ts&quot; with { type: &quot;comptime&quot; };
+
+let a = 1;
+
+const x = sum(++a, 2);
+++a;
+const y = sum(++a, 2);
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-typescript">let a = 1; // not a comptime var
+
+const x = 4;
+++a; // untouched
+const y = 4; // same as previous line because it was evaluated independently
+</code></pre>
+<p>However, if we move the mutable state to another file, mutations are reflected between evaluations.</p>
+<pre><code class="language-typescript">import { sum } from &quot;./sum.ts&quot; with { type: &quot;comptime&quot; };
+
+// export const state = { a: 1 };
+import { state } from &quot;./state.ts&quot; with { type: &quot;comptime&quot; };
+
+const x = sum(++state.a, 2);
+++state.a;
+const y = sum(state.a, 2);
+</code></pre>
+<p>Compiles to:</p>
+<pre><code class="language-typescript">const x = 4;
+3; // because of the ++a in previous line
+const y = 5;
+</code></pre>
+</li>
+<li><p><strong>My comptime expression was not replaced</strong></p>
+<ul>
+<li>Check that the import has <code>{ type: &quot;comptime&quot; }</code>.</li>
+<li>Ensure the expression is serialisable <a href="././serialisation">(see serialisation)</a>.</li>
+<li>Verify all dependencies are available at compile time.</li>
+</ul>
+</li>
+<li><p><strong>Build time too slow</strong></p>
+<ul>
+<li>Consider moving complex computations to runtime.</li>
+<li>Break down large expressions into smaller ones.</li>
+<li>Pass <code>include</code>/<code>exclude</code> options to limit scope.</li>
+</ul>
+</li>
+</ol>
+<h2>Supporting the project</h2>
+<p>A lot of time and effort goes into maintaining projects like this.</p>
+<p>If you&#39;d like to support the project, please consider:</p>
+<ul>
+<li><a href="https://github.com/feathers-studio/comptime.ts">Star and share the project with others</a></li>
+<li>Sponsor the project (<a href="https://github.com/sponsors/MKRhere">GitHub Sponsors</a> / <a href="https://patreon.com/MKRhere">Patreon</a> / <a href="https://ko-fi.com/MKRhere">Ko-fi</a>)</li>
+</ul>
+<h2>License</h2>
+<p>MIT</p>
+</main>
+<script>
+	document.addEventListener("DOMContentLoaded", () => {
+		const counts = {};
+		document.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach(h => {
+			const hasAnchor = h.querySelector("a");
+			if (hasAnchor) return;
+
+			let id = h.textContent
+				.toLowerCase()
+				.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]/gu, "")
+				.replace(/[!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/g, "")
+				.replace(/\s+/g, "-")
+				.replace(/-+/g, "-")
+				.replace(/^[-]+|[-]+$/g, "");
+			const n = counts[id] || 0;
+			counts[id] = n + 1;
+			h.id = n ? `${id}-${n}` : id;
+
+			const a = document.createElement("a");
+			a.className = "header-link";
+			a.href = `#${h.id}`;
+
+			const linker = document.createElement("span");
+			linker.className = "linker";
+			linker.innerText = "🔗";
+			a.appendChild(linker);
+
+			const text = document.createElement("span");
+			text.innerText = h.textContent;
+			a.appendChild(text);
+
+			h.innerHTML = "";
+			h.appendChild(a);
+		});
+	});
+
+	window.addEventListener("keydown", e => {
+		if (e.key === "Escape") {
+			const scrollY = window.scrollY;
+			window.location.hash = "";
+			window.scrollTo(0, scrollY);
+		}
+	});
+</script>
+</body>
+</html>
